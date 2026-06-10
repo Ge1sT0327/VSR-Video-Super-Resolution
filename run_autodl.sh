@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # AutoDL 运行脚本 — 一键训练+评估
-# 使用方法: bash run_autodl.sh [full|standard|evaluate]
+# 使用方法: bash run_autodl.sh [full|standard|evaluate|inference]
 # ============================================================
 set -e
 
@@ -12,29 +12,34 @@ echo "  VSR 实验 — AutoDL"
 echo "  模式: $MODE"
 echo "============================================"
 
-# 检测数据集路径
-if [ -d "/root/autodl-pub/Vimeo-90k" ]; then
-    VIMEO_ROOT="/root/autodl-pub/Vimeo-90k"
-elif [ -d "/root/autodl-tmp/vimeo_septuplet" ]; then
-    VIMEO_ROOT="/root/autodl-tmp/vimeo_septuplet"
-elif [ -d "/root/autodl-fs/vimeo_septuplet" ]; then
-    VIMEO_ROOT="/root/autodl-fs/vimeo_septuplet"
-elif [ -d "./data/vimeo_septuplet" ]; then
-    VIMEO_ROOT="./data/vimeo_septuplet"
-else
-    echo "未找到 Vimeo-90K 数据集"
-    echo "请先运行: bash setup_autodl.sh"
-    echo "或使用合成数据: bash run_autodl.sh standard"
-    VIMEO_ROOT=""
-fi
+# 检测数据集路径 (按优先级)
+VIMEO_ROOT=""
+for path in \
+    "/root/autodl-tmp/vimeo_septuplet" \
+    "/root/autodl-pub/vimeo_septuplet" \
+    "/root/autodl-fs/vimeo_septuplet" \
+    "./data/vimeo_septuplet"; do
+    if [ -d "$path/sequences" ]; then
+        VIMEO_ROOT="$path"
+        echo "数据集: $VIMEO_ROOT"
+        break
+    fi
+done
 
 case $MODE in
     full)
-        echo "[full 模式] 完整训练 (50 epochs, Vimeo-90K)"
+        echo ""
+        echo "[full 模式] 完整训练 — Vimeo-90K, 50 epochs"
+        echo "预计耗时: 8-12 小时 (RTX 3090)"
+
         if [ -z "$VIMEO_ROOT" ]; then
-            echo "错误: 需要 Vimeo-90K 数据集"
+            echo ""
+            echo "*** 错误: 未找到 Vimeo-90K 数据集 ***"
+            echo "请先运行: bash setup_autodl.sh"
+            echo "或使用合成数据: bash run_autodl.sh standard"
             exit 1
         fi
+
         python run_experiment.py \
             --mode full \
             --dataset vimeo \
@@ -44,28 +49,45 @@ case $MODE in
             --num_frames 7 \
             --scale 4
         ;;
+
     standard)
-        echo "[standard 模式] 标准实验 (合成数据, 5 epochs)"
+        echo ""
+        echo "[standard 模式] 标准实验 — 合成数据, 5 epochs"
+        echo "预计耗时: 约 5 分钟"
+
         python run_experiment.py --mode standard
         ;;
+
     evaluate)
-        echo "[evaluate 模式] 仅评估已训练的模型"
+        echo ""
+        echo "[evaluate 模式] 仅评估已训练模型"
+
+        ARGS=""
+        if [ -n "$VIMEO_ROOT" ]; then
+            ARGS="--dataset vimeo --vimeo_root $VIMEO_ROOT"
+        else
+            ARGS="--dataset tiny"
+        fi
+
         python evaluate.py \
             --model_paths results/basicvsr_light/best_model.pth \
                          results/vsr_3dcnn/best_model.pth \
                          results/vsr_convlstm/best_model.pth \
             --model_types basicvsr_light vsr_3dcnn vsr_convlstm \
-            --dataset "${VIMEO_ROOT:+vimeo}" \
-            ${VIMEO_ROOT:+--vimeo_root "$VIMEO_ROOT"} \
+            $ARGS \
             --output_dir results/final_evaluation
         ;;
+
     inference)
+        echo ""
         echo "[inference 模式] 单模型推理演示"
+
         python inference.py \
             --model_path results/basicvsr_light/best_model.pth \
             --model_type basicvsr_light \
             --output_dir results/inference_output
         ;;
+
     *)
         echo "用法: bash run_autodl.sh [full|standard|evaluate|inference]"
         exit 1
