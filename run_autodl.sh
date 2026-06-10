@@ -29,8 +29,8 @@ done
 case $MODE in
     full)
         echo ""
-        echo "[full 模式] 完整训练 — Vimeo-90K, 50 epochs"
-        echo "预计耗时: 8-12 小时 (RTX 3090)"
+        echo "[full 模式] Vimeo-90K 训练 — 3个模型各5 epochs"
+        echo "预计耗时: 约 30 分钟"
 
         if [ -z "$VIMEO_ROOT" ]; then
             echo ""
@@ -44,7 +44,7 @@ case $MODE in
             --mode full \
             --dataset vimeo \
             --vimeo_root "$VIMEO_ROOT" \
-            --epochs 50 \
+            --epochs 5 \
             --batch_size 16 \
             --num_frames 7 \
             --scale 4
