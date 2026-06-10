@@ -45,7 +45,7 @@ case $MODE in
             --dataset vimeo \
             --vimeo_root "$VIMEO_ROOT" \
             --epochs 50 \
-            --batch_size 4 \
+            --batch_size 16 \
             --num_frames 7 \
             --scale 4
         ;;
