@@ -13,7 +13,9 @@ echo "  模式: $MODE"
 echo "============================================"
 
 # 检测数据集路径
-if [ -d "/root/autodl-tmp/vimeo_septuplet" ]; then
+if [ -d "/root/autodl-pub/Vimeo-90k" ]; then
+    VIMEO_ROOT="/root/autodl-pub/Vimeo-90k"
+elif [ -d "/root/autodl-tmp/vimeo_septuplet" ]; then
     VIMEO_ROOT="/root/autodl-tmp/vimeo_septuplet"
 elif [ -d "/root/autodl-fs/vimeo_septuplet" ]; then
     VIMEO_ROOT="/root/autodl-fs/vimeo_septuplet"

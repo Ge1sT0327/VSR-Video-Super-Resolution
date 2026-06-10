@@ -29,7 +29,10 @@ else
 
     # Vimeo-90K 官方下载地址
     # 如果 autodl 有预置数据集，可以直接软链接
-    if [ -d "/root/autodl-tmp/vimeo_septuplet" ]; then
+    if [ -d "/root/autodl-pub/Vimeo-90k" ]; then
+        echo "  使用 AutoDL 公开数据集"
+        ln -s /root/autodl-pub/Vimeo-90k ./data/vimeo_septuplet
+    elif [ -d "/root/autodl-tmp/vimeo_septuplet" ]; then
         echo "  使用 AutoDL 预置数据集"
         ln -s /root/autodl-tmp/vimeo_septuplet ./data/vimeo_septuplet
     elif [ -d "/root/autodl-fs/vimeo_septuplet" ]; then
