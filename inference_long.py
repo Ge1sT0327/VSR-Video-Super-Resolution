@@ -150,7 +150,7 @@ def _forward_with_state(model, chunk, state, device):
     - 用上一窗口的最后一帧作为新的初始帧
     - 让模型看到跨窗口的时序上下文
     """
-    # 拼接: 上一窗口末尾帧 + 当前窗口帧
+    # 拼接: 上一窗口末尾帧 [1, C, H, W] → [1, 1, C, H, W]
     prev_lr = state['last_lr'].unsqueeze(0).to(device)  # [1, 1, C, H, W]
     extended = torch.cat([prev_lr, chunk], dim=1)  # [1, window+1, C, H, W]
 
