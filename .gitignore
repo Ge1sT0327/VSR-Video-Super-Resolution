@@ -1,11 +1,8 @@
-results/
 __pycache__/
 *.pyc
 *.pth
 *.pkl
-.DS_Store
 *.zip
 *.tar.gz
 data/vimeo_septuplet/
 data/VID4/
-data/VID4_temp/
