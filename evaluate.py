@@ -154,6 +154,7 @@ def main():
     parser.add_argument('--test_root', type=str, default=None, help='测试集路径')
     parser.add_argument('--scale', type=int, default=4, help='超分倍率')
     parser.add_argument('--num_frames', type=int, default=7, help='帧数')
+    parser.add_argument('--num_workers', type=int, default=8, help='数据加载进程数')
     parser.add_argument('--output_dir', type=str, default='results/evaluation',
                         help='输出目录')
 
@@ -168,7 +169,7 @@ def main():
     # 加载测试数据
     _, test_loader = get_dataloader(
         dataset_type=args.dataset if args.test_root is None else 'test',
-        test_root=args.test_root,
+        test_root=args.test_root, num_workers=args.num_workers,
         num_frames=args.num_frames, scale=args.scale)
 
     # 逐个评估模型

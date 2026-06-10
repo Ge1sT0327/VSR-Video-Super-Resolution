@@ -116,6 +116,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=2, help='批大小')
     parser.add_argument('--lr', type=float, default=2e-4, help='学习率')
     # 输出
+    parser.add_argument('--num_workers', type=int, default=8, help='数据加载进程数')
     parser.add_argument('--save_dir', type=str, default='results', help='保存目录')
     parser.add_argument('--save_interval', type=int, default=2, help='保存间隔')
     parser.add_argument('--tag', type=str, default='', help='实验标签')
@@ -134,7 +135,7 @@ def main():
     print("\n[1/4] 准备数据集...")
     train_loader, test_loader = get_dataloader(
         dataset_type=args.dataset, batch_size=args.batch_size,
-        num_workers=0, vimeo_root=args.vimeo_root, test_root=args.test_root,
+        num_workers=args.num_workers, vimeo_root=args.vimeo_root, test_root=args.test_root,
         num_frames=args.num_frames, scale=args.scale)
 
     if train_loader is None:

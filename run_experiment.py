@@ -91,6 +91,7 @@ def run_experiment(args):
             '--scale', str(args.scale),
             '--save_dir', results_root,
             '--save_interval', str(max(1, epochs // 2)),
+            '--num_workers', '8',
         ]
 
         if args.vimeo_root:
@@ -134,6 +135,7 @@ def run_experiment(args):
         '--scale', str(args.scale),
         '--num_frames', str(args.num_frames),
         '--output_dir', eval_output,
+        '--num_workers', '8',
     ]
     if args.test_root:
         cmd.extend(['--test_root', args.test_root])
