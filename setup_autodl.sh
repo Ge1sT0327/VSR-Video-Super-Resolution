@@ -16,7 +16,7 @@ pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 # -------- 2. 安装依赖 --------
 echo "[2/4] 安装 Python 依赖..."
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-pip install numpy Pillow opencv-python tqdm
+pip install "numpy<2" Pillow opencv-python tqdm
 
 # -------- 3. 准备 Vimeo-90K 数据集 --------
 echo "[3/4] 准备 Vimeo-90K 数据集..."
