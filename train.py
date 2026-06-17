@@ -211,6 +211,8 @@ def main():
     print("=" * 60)
 
     device = setup_device()
+    torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision('high')
     save_dir = os.path.join(args.save_dir, args.model + (f'_{args.tag}' if args.tag else ''))
     os.makedirs(save_dir, exist_ok=True)
 
