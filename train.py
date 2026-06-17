@@ -24,6 +24,7 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
 from torch.optim.lr_scheduler import CosineAnnealingLR, MultiStepLR
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -82,8 +83,8 @@ def adjust_lr_for_phase(optimizer, epoch, total_epochs, base_lr, lr_schedule):
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device, epoch,
-                    log_interval=50):
-    """训练一个 epoch, log_interval 控制打印频率"""
+                    log_interval=50, scaler=None, use_amp=False):
+    """训练一个 epoch, 支持 AMP 混合精度加速"""
     model.train()
     total_loss = 0
     num_batches = 0
@@ -92,13 +93,23 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, epoch,
         lr_frames = lr_frames.to(device)
         hr_frames = hr_frames.to(device)
 
-        sr_frames = model(lr_frames)
-        loss = criterion(sr_frames, hr_frames)
-
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
-        optimizer.step()
+        if use_amp and scaler is not None:
+            with autocast():
+                sr_frames = model(lr_frames)
+                loss = criterion(sr_frames, hr_frames)
+            optimizer.zero_grad()
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            sr_frames = model(lr_frames)
+            loss = criterion(sr_frames, hr_frames)
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+            optimizer.step()
 
         total_loss += loss.item()
         num_batches += 1
@@ -111,7 +122,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, epoch,
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, device, save_dir=None, epoch=0, scale=4):
+def evaluate(model, dataloader, device, save_dir=None, epoch=0, scale=4, use_amp=False):
     """评估模型 (PSNR + SSIM + 可视化), 返回平均PSNR和SSIM"""
     model.eval()
     total_psnr, total_ssim, count = 0, 0, 0
@@ -119,7 +130,11 @@ def evaluate(model, dataloader, device, save_dir=None, epoch=0, scale=4):
     for batch_idx, (lr_frames, hr_frames) in enumerate(dataloader):
         lr_frames = lr_frames.to(device)
         hr_frames = hr_frames.to(device)
-        sr_frames = model(lr_frames)
+        if use_amp:
+            with autocast():
+                sr_frames = model(lr_frames)
+        else:
+            sr_frames = model(lr_frames)
 
         B, T = sr_frames.shape[:2]
         for b in range(B):
@@ -180,6 +195,8 @@ def main():
                         choices=['cosine', 'multi_phase', 'step'],
                         help='学习率调度策略: cosine=标准, multi_phase=三阶段, step=阶梯衰减')
     parser.add_argument('--resume', type=str, default=None, help='从 checkpoint 恢复训练')
+    parser.add_argument('--amp', action='store_true', default=True, help='启用 AMP 混合精度 (默认开启)')
+    parser.add_argument('--no_amp', action='store_true', help='禁用 AMP 混合精度')
     # 输出
     parser.add_argument('--num_workers', type=int, default=8, help='数据加载进程数')
     parser.add_argument('--save_dir', type=str, default='results', help='保存目录')
@@ -239,7 +256,9 @@ def main():
             with open(json_path) as f:
                 metrics_history = json.load(f)
 
-    print(f"损失: Charbonnier | 优化器: Adam (lr={args.lr}) | 调度: {args.lr_schedule}")
+    use_amp = args.amp and not args.no_amp and torch.cuda.is_available()
+    scaler = GradScaler() if use_amp else None
+    print(f"损失: Charbonnier | 优化器: Adam (lr={args.lr}) | 调度: {args.lr_schedule} | AMP: {use_amp}")
     if args.lr_schedule == 'multi_phase':
         print(f"  Phase1 (1-{min(30, args.epochs)}): Cosine {args.lr}→1e-7")
         if args.epochs > 30:
@@ -261,7 +280,8 @@ def main():
         adjust_lr_for_phase(optimizer, epoch, args.epochs, args.lr, args.lr_schedule)
 
         avg_loss = train_one_epoch(model, train_loader, criterion, optimizer, device,
-                                   epoch, log_interval=args.log_interval)
+                                   epoch, log_interval=args.log_interval,
+                                   scaler=scaler, use_amp=use_amp)
 
         # multi_phase 模式下只在 Phase1 使用 scheduler, 后续阶段手动控制
         if args.lr_schedule != 'multi_phase' or epoch <= 30:
@@ -273,7 +293,7 @@ def main():
         avg_psnr, avg_ssim = evaluate(
             model, test_loader, device,
             save_dir=save_dir if epoch % args.save_interval == 0 else None,
-            epoch=epoch, scale=args.scale)
+            epoch=epoch, scale=args.scale, use_amp=use_amp)
 
         # 保存指标
         entry = {
