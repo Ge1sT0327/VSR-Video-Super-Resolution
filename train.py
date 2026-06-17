@@ -122,7 +122,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, epoch,
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, device, save_dir=None, epoch=0, scale=4, use_amp=False):
+def evaluate(model, dataloader, device, save_dir=None, epoch=0, scale=4, use_amp=False, val_limit=100):
     """评估模型 (PSNR + SSIM + 可视化), 返回平均PSNR和SSIM"""
     model.eval()
     total_psnr, total_ssim, count = 0, 0, 0
@@ -197,6 +197,7 @@ def main():
     parser.add_argument('--resume', type=str, default=None, help='从 checkpoint 恢复训练')
     parser.add_argument('--amp', action='store_true', default=True, help='启用 AMP 混合精度 (默认开启)')
     parser.add_argument('--no_amp', action='store_true', help='禁用 AMP 混合精度')
+    parser.add_argument('--val_limit', type=int, default=100, help='验证集最多评估 N 个 batch (默认100, 0=全部)')
     # 输出
     parser.add_argument('--num_workers', type=int, default=8, help='数据加载进程数')
     parser.add_argument('--save_dir', type=str, default='results', help='保存目录')
@@ -295,7 +296,7 @@ def main():
         avg_psnr, avg_ssim = evaluate(
             model, test_loader, device,
             save_dir=save_dir if epoch % args.save_interval == 0 else None,
-            epoch=epoch, scale=args.scale, use_amp=use_amp)
+            epoch=epoch, scale=args.scale, use_amp=use_amp, val_limit=args.val_limit)
 
         # 保存指标
         entry = {
