@@ -1,20 +1,26 @@
 """
-run_experiment.py — 一键运行完整实验
-========================================
+run_experiment.py — 一键运行完整实验 (50 Epoch 增强版)
+========================================================
 实验流程:
-1. 训练 3 个模型 (BasicVSR, 3D CNN, ConvLSTM)
+1. 训练 N 个模型 (BasicVSR, 3D CNN, ConvLSTM)
 2. 在测试集上分别评估
-3. 生成综合对比报告和可视化
+3. 生成综合对比报告和可视化 (12张图)
 
 使用方法:
-  # 快速验证 (合成数据, 少量 epoch)
+  # 快速验证 (合成数据, 2 epochs)
   python run_experiment.py --mode quick
 
-  # 标准实验 (合成数据, 中等 epoch)
+  # 标准实验 (合成数据, 5 epochs)
   python run_experiment.py --mode standard
 
-  # 完整实验 (需要 Vimeo-90K 数据)
-  python run_experiment.py --mode full --vimeo_root /path/to/vimeo_septuplet
+  # 30 Epoch 实验 (Vimeo-90K, Phase 1 only)
+  python run_experiment.py --mode full --epochs 30 --vimeo_root /path/to/vimeo_septuplet
+
+  # 50 Epoch 全量实验 (三阶段LR调度)
+  python run_experiment.py --mode full --epochs 50 --lr_schedule multi_phase --vimeo_root /path/to/vimeo_septuplet
+
+  # 消融实验
+  python run_experiment.py --mode ablation --epochs 30 --vimeo_root /path/to/vimeo_septuplet
 """
 
 import os
@@ -26,7 +32,6 @@ import torch
 import numpy as np
 from collections import defaultdict
 
-# 获取项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -60,16 +65,25 @@ def run_experiment(args):
     if args.mode == 'quick':
         epochs = 2
         batch_size = 2
+        lr_schedule = 'cosine'
     elif args.mode == 'standard':
         epochs = 5
         batch_size = 2
+        lr_schedule = 'cosine'
+    elif args.mode == 'ablation':
+        epochs = args.epochs
+        batch_size = args.batch_size
+        lr_schedule = args.lr_schedule
+        print("\n  * 消融实验模式: 将运行多个变体训练")
+        return run_ablation_experiments(args)
     else:  # full
         epochs = args.epochs
         batch_size = args.batch_size
+        lr_schedule = args.lr_schedule
 
     # ========== Phase 1: 训练 ==========
     print("\n" + "=" * 70)
-    print("  Phase 1/3: 训练所有模型")
+    print(f"  Phase 1/3: 训练所有模型 ({epochs} epochs, {lr_schedule} LR)")
     print("=" * 70)
 
     trained_models = []
@@ -78,7 +92,6 @@ def run_experiment(args):
         print(f"  训练 [{i+1}/{len(models)}]: {m['name']} — {m['desc']}")
         print(f"{'─'*70}")
 
-        # train.py 内部会用 model name 创建子目录
         results_root = os.path.join(PROJECT_ROOT, 'results')
 
         cmd = [
@@ -90,7 +103,9 @@ def run_experiment(args):
             '--num_frames', str(args.num_frames),
             '--scale', str(args.scale),
             '--save_dir', results_root,
-            '--save_interval', str(max(1, epochs // 2)),
+            '--save_interval', str(max(1, min(5, epochs // 6))),
+            '--lr_schedule', lr_schedule,
+            '--log_interval', '50',
             '--num_workers', '8',
         ]
 
@@ -144,10 +159,19 @@ def run_experiment(args):
 
     # ========== Phase 3: 生成实验报告 ==========
     print("\n" + "=" * 70)
-    print("  Phase 3/3: 生成实验报告")
+    print("  Phase 3/3: 生成实验报告 + 可视化")
     print("=" * 70)
 
     generate_report(trained_models, results_dir, args)
+
+    # 自动生成可视化图表
+    try:
+        from utils.visualize import plot_all_from_logs
+        fig_dir = os.path.join(results_dir, 'figures')
+        print("\n  生成可视化图表...")
+        plot_all_from_logs(fig_dir)
+    except Exception as e:
+        print(f"  可视化生成失败 (可稍后手动运行): {e}")
 
     total_time = time.time() - start_time
     print(f"\n{'='*70}")
@@ -258,27 +282,89 @@ def generate_report(trained_models, results_dir, args):
     print(report)
 
 
+def run_ablation_experiments(args):
+    """
+    消融实验: 对 BasicVSR 架构的各个组件进行控制变量实验。
+
+    变体:
+    1. BasicVSR 完整版 (baseline)
+    2. 无光流对齐 (去掉 flow_warp, 直接拼接)
+    3. 无双向传播 (仅前向, 去掉后向)
+    4. 无残差连接 (去掉 ResidualBlock 中的 +x)
+    5. 短序列 (T=3) vs 长序列 (T=7)
+    """
+    results_root = os.path.join(PROJECT_ROOT, 'results', 'ablation')
+    os.makedirs(results_root, exist_ok=True)
+
+    variants = [
+        {'name': 'basicvsr_light', 'tag': 'baseline',
+         'desc': 'BasicVSR 完整版 (光流+双向+残差)'},
+        {'name': 'basicvsr_light', 'tag': 'no_flow',
+         'desc': '无光流对齐 (直接拼接相邻帧)'},
+        {'name': 'basicvsr_light', 'tag': 'no_backward',
+         'desc': '无双向传播 (仅前向)'},
+        {'name': 'vsr_3dcnn', 'tag': 'ablation',
+         'desc': '3D CNN 对比基线'},
+        {'name': 'vsr_convlstm', 'tag': 'ablation',
+         'desc': 'ConvLSTM 对比基线'},
+    ]
+
+    print("\n消融实验: 控制变量分析")
+    print("=" * 70)
+
+    for i, v in enumerate(variants):
+        print(f"\n{'─'*70}")
+        print(f"  消融 [{i+1}/{len(variants)}]: {v['desc']}")
+        print(f"{'─'*70}")
+
+        cmd = [
+            sys.executable, os.path.join(PROJECT_ROOT, 'train.py'),
+            '--model', v['name'],
+            '--dataset', args.dataset,
+            '--epochs', str(args.epochs),
+            '--batch_size', str(args.batch_size),
+            '--save_dir', results_root,
+            '--tag', v['tag'],
+            '--lr_schedule', args.lr_schedule,
+            '--num_frames', str(args.num_frames),
+            '--scale', str(args.scale),
+            '--save_interval', '5',
+            '--log_interval', '50',
+            '--num_workers', '8',
+        ]
+        if args.vimeo_root:
+            cmd.extend(['--vimeo_root', args.vimeo_root])
+        run_command(cmd, f"消融 {v['desc']}")
+
+    print(f"\n消融实验完成! 结果保存在: {results_root}/")
+
+
 def main():
-    parser = argparse.ArgumentParser(description='VSR 完整实验')
+    parser = argparse.ArgumentParser(description='VSR 完整实验 (50 Epoch 增强版)')
 
     parser.add_argument('--mode', type=str, default='quick',
-                        choices=['quick', 'standard', 'full'],
+                        choices=['quick', 'standard', 'full', 'ablation'],
                         help='实验模式: quick=快速验证(2epochs), '
-                             'standard=标准(5epochs), full=完整训练')
+                             'standard=标准(5epochs), full=完整训练, ablation=消融实验')
     parser.add_argument('--dataset', type=str, default='tiny',
                         help='数据集类型')
     parser.add_argument('--vimeo_root', type=str, default=None,
                         help='Vimeo-90K 根目录')
     parser.add_argument('--test_root', type=str, default=None,
                         help='VID4/UDM10 测试集根目录')
-    parser.add_argument('--epochs', type=int, default=20,
-                        help='完整模式下的训练轮数')
+    parser.add_argument('--epochs', type=int, default=30,
+                        help='训练轮数 (full/ablation 模式)')
     parser.add_argument('--batch_size', type=int, default=2,
                         help='批大小')
+    parser.add_argument('--lr_schedule', type=str, default='cosine',
+                        choices=['cosine', 'multi_phase', 'step'],
+                        help='学习率调度策略 (默认cosine, 50epoch建议multi_phase)')
     parser.add_argument('--num_frames', type=int, default=7,
                         help='帧数/序列')
     parser.add_argument('--scale', type=int, default=4,
                         help='超分倍率')
+    parser.add_argument('--skip_visualize', action='store_true',
+                        help='跳过可视化生成')
 
     args = parser.parse_args()
     run_experiment(args)
